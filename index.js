@@ -417,6 +417,213 @@ server.get('/health', async (_req, res) => {
   }
 });
 
+
+server.post('/wp/register-site', async (req, res) => {
+  try {
+    const suppliedSecret = req.header('X-TLC-Secret') || '';
+    const {
+      site_url: siteUrl,
+      site_name: siteName,
+      site_key: requestedSiteKey,
+    } = req.body || {};
+
+    if (!siteUrl || !suppliedSecret) {
+      return res.status(400).json({ error: 'invalid_payload' });
+    }
+
+    const host = normalizeHost(String(siteUrl));
+    if (!host) return res.status(400).json({ error: 'invalid_site_url' });
+
+    const siteKey = slugify(requestedSiteKey || host.replace(/\./g, '-'));
+    const { data: allSites, error: siteError } = await supabase
+      .from('sites')
+      .select('*');
+
+    if (siteError) throw siteError;
+
+    let site = (allSites || []).find((row) => normalizeHost(row.base_url) === host) || null;
+
+    if (site) {
+      if (site.shared_secret && !safeEqual(site.shared_secret, suppliedSecret)) {
+        return res.status(403).json({ error: 'forbidden' });
+      }
+
+      const { data, error } = await supabase
+        .from('sites')
+        .update({
+          name: String(siteName || site.name || host),
+          base_url: String(siteUrl),
+          site_key: site.site_key || siteKey,
+          shared_secret: suppliedSecret,
+          secret_hash: crypto.createHash('sha256').update(suppliedSecret).digest('hex'),
+          is_active: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', site.id)
+        .select('*')
+        .single();
+
+      if (error) throw error;
+      site = data;
+    } else {
+      const { data, error } = await supabase
+        .from('sites')
+        .insert({
+          site_key: siteKey,
+          name: String(siteName || host),
+          base_url: String(siteUrl),
+          shared_secret: suppliedSecret,
+          secret_hash: crypto.createHash('sha256').update(suppliedSecret).digest('hex'),
+          is_active: true,
+        })
+        .select('*')
+        .single();
+
+      if (error) throw error;
+      site = data;
+    }
+
+    return res.json({
+      ok: true,
+      site: {
+        id: site.id,
+        site_key: site.site_key,
+        name: site.name,
+        base_url: site.base_url,
+      },
+    });
+  } catch (error) {
+    console.error('[wp/register-site]', error);
+    return res.status(500).json({
+      error: 'bridge_error',
+      detail: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+server.get('/wp/bootstrap', async (req, res) => {
+  try {
+    const siteUrl = String(req.query.site_url || '');
+    const siteKey = req.query.site_key ? String(req.query.site_key) : undefined;
+    const suppliedSecret = req.header('X-TLC-Secret') || '';
+
+    const site = await resolveSite(siteUrl, siteKey);
+    if (!site) return res.status(404).json({ error: 'site_not_registered' });
+
+    if (!site.shared_secret || !suppliedSecret || !safeEqual(site.shared_secret, suppliedSecret)) {
+      return res.status(403).json({ error: 'forbidden' });
+    }
+
+    const [{ data: agents, error: agentsError }, { data: sites, error: sitesError }, { data: mappings, error: mappingsError }] = await Promise.all([
+      supabase
+        .from('agents')
+        .select('id,agent_key,display_name,status,is_active,last_seen_at')
+        .eq('is_active', true)
+        .order('display_name', { ascending: true }),
+      supabase
+        .from('sites')
+        .select('id,site_key,name,base_url,is_active')
+        .eq('is_active', true)
+        .order('name', { ascending: true }),
+      supabase
+        .from('site_agents')
+        .select('agent_id,department,priority,is_active')
+        .eq('site_id', site.id)
+        .eq('is_active', true)
+        .order('priority', { ascending: true }),
+    ]);
+
+    if (agentsError) throw agentsError;
+    if (sitesError) throw sitesError;
+    if (mappingsError) throw mappingsError;
+
+    const activeAgents = agents || [];
+    const onlineCount = activeAgents.filter((a) => a.status === 'online').length;
+    const availableCount = activeAgents.filter((a) => a.status === 'online' || a.status === 'away').length;
+
+    return res.json({
+      ok: true,
+      site: {
+        id: site.id,
+        site_key: site.site_key,
+        name: site.name,
+        base_url: site.base_url,
+      },
+      agents: activeAgents,
+      assigned_agent_ids: (mappings || []).map((m) => m.agent_id),
+      sites: sites || [],
+      availability: {
+        online: onlineCount,
+        available: availableCount,
+        total: activeAgents.length,
+      },
+    });
+  } catch (error) {
+    console.error('[wp/bootstrap]', error);
+    return res.status(500).json({
+      error: 'bridge_error',
+      detail: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+server.post('/wp/assign-agents', async (req, res) => {
+  try {
+    const suppliedSecret = req.header('X-TLC-Secret') || '';
+    const {
+      site_url: siteUrl,
+      site_key: siteKey,
+      agent_ids: agentIds,
+      department = 'general',
+    } = req.body || {};
+
+    if (!siteUrl || !Array.isArray(agentIds)) {
+      return res.status(400).json({ error: 'invalid_payload' });
+    }
+
+    const site = await resolveSite(String(siteUrl), siteKey ? String(siteKey) : undefined);
+    if (!site) return res.status(404).json({ error: 'site_not_registered' });
+
+    if (!site.shared_secret || !suppliedSecret || !safeEqual(site.shared_secret, suppliedSecret)) {
+      return res.status(403).json({ error: 'forbidden' });
+    }
+
+    const cleanIds = [...new Set(agentIds.map(String).filter(Boolean))];
+
+    const { error: deleteError } = await supabase
+      .from('site_agents')
+      .delete()
+      .eq('site_id', site.id)
+      .eq('department', String(department));
+
+    if (deleteError) throw deleteError;
+
+    if (cleanIds.length) {
+      const rows = cleanIds.map((agentId, index) => ({
+        site_id: site.id,
+        agent_id: agentId,
+        department: String(department),
+        priority: index + 1,
+        is_active: true,
+      }));
+
+      const { error: insertError } = await supabase
+        .from('site_agents')
+        .insert(rows);
+
+      if (insertError) throw insertError;
+    }
+
+    return res.json({ ok: true, assigned_agent_ids: cleanIds });
+  } catch (error) {
+    console.error('[wp/assign-agents]', error);
+    return res.status(500).json({
+      error: 'bridge_error',
+      detail: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
 server.post('/wp/message', async (req, res) => {
   try {
     const {
