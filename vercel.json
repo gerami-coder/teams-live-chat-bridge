@@ -5,6 +5,9 @@
     { "source": "/health", "destination": "/api/health" },
     { "source": "/", "destination": "/api/index" },
     { "source": "/wp/message", "destination": "/api/index" },
+    { "source": "/wp/register-site", "destination": "/api/index" },
+    { "source": "/wp/bootstrap", "destination": "/api/index" },
+    { "source": "/wp/assign-agents", "destination": "/api/index" },
     { "source": "/api/messages", "destination": "/api/index" }
   ]
 }
