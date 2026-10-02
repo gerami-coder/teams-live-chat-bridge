@@ -2,8 +2,8 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
   "rewrites": [
+    { "source": "/health", "destination": "/api/health" },
     { "source": "/", "destination": "/api/index" },
-    { "source": "/health", "destination": "/api/index" },
     { "source": "/wp/message", "destination": "/api/index" },
     { "source": "/api/messages", "destination": "/api/index" }
   ]
