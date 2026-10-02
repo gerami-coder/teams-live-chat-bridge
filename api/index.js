@@ -122,12 +122,19 @@ async function upsertAgent(activity) {
   }
 
   if (existing) {
+    const incomingIsPersonal = String(conversationId).startsWith('a:');
+    const existingIsPersonal = String(existing.teams_conversation_id || '').startsWith('a:');
+    const safeConversationId =
+      incomingIsPersonal || !existingIsPersonal
+        ? conversationId
+        : existing.teams_conversation_id;
+
     const { data, error } = await supabase
       .from('agents')
       .update({
         display_name: displayName,
         aad_object_id: aadObjectId || existing.aad_object_id,
-        teams_conversation_id: conversationId,
+        teams_conversation_id: safeConversationId,
         status: existing.status === 'offline' ? 'offline' : 'online',
         last_seen_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -269,15 +276,22 @@ function buildChatCard({
         wrap: true,
       },
     ],
-    actions: pageUrl
-      ? [
-          {
-            type: 'Action.OpenUrl',
-            title: 'Open website',
-            url: pageUrl,
-          },
-        ]
-      : [],
+    actions: [
+      {
+        type: 'Action.OpenUrl',
+        title: 'Open in Inbox',
+        url: `https://teams-live-chat-bridge.vercel.app/tab?conversation=${encodeURIComponent(conversationUuid)}`,
+      },
+      ...(pageUrl
+        ? [
+            {
+              type: 'Action.OpenUrl',
+              title: 'Open website',
+              url: pageUrl,
+            },
+          ]
+        : []),
+    ],
   };
 }
 
@@ -324,24 +338,31 @@ app.on('message', async ({ activity, send }) => {
 
     if (!text) return;
 
-    const { data: conversation, error } = await supabase
+    const { data: activeConversations, error } = await supabase
       .from('conversations')
       .select('*, sites(*)')
       .eq('assigned_agent_id', agent.id)
       .in('status', ['open', 'pending'])
       .order('last_message_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .limit(3);
 
     if (error) throw error;
 
-    if (!conversation) {
+    if (!activeConversations?.length) {
       await send(
-        'No active website conversation is assigned to you. Commands: /online, /away, /offline',
+        'No active website conversation is assigned to you. Open the Inbox tab to view all conversations.',
       );
       return;
     }
 
+    if (activeConversations.length > 1) {
+      await send(
+        'You have multiple active website conversations. Use the Inbox tab to choose the visitor before replying.',
+      );
+      return;
+    }
+
+    const conversation = activeConversations[0];
     const site = conversation.sites;
 
     if (!site?.shared_secret) {
