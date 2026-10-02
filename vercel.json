@@ -8,6 +8,10 @@
     { "source": "/wp/register-site", "destination": "/api/index" },
     { "source": "/wp/bootstrap", "destination": "/api/index" },
     { "source": "/wp/assign-agents", "destination": "/api/index" },
-    { "source": "/api/messages", "destination": "/api/index" }
+    { "source": "/api/messages", "destination": "/api/index" },
+    { "source": "/tab", "destination": "/api/tab" },
+    { "source": "/tab/session", "destination": "/api/tab-session" },
+    { "source": "/tab/data", "destination": "/api/tab-data" },
+    { "source": "/tab/action", "destination": "/api/tab-action" }
   ]
 }
