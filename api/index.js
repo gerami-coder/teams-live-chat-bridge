@@ -224,6 +224,25 @@ async function chooseAgent(siteId, department = 'general') {
   return agent;
 }
 
+function buildInboxDeepLink(conversationUuid) {
+  const appId = process.env.CLIENT_ID || '3e2267d0-5d77-42ba-8c21-967bccf07208';
+  const tenantId = process.env.TENANT_ID || '';
+  const entityId = 'inbox';
+  const webUrl = `https://teams-live-chat-bridge.vercel.app/tab?conversation=${encodeURIComponent(conversationUuid)}`;
+  const context = JSON.stringify({ subEntityId: String(conversationUuid) });
+
+  const params = new URLSearchParams({
+    webUrl,
+    label: 'Website Live Chat Inbox',
+    context,
+    openInMeeting: 'false',
+  });
+
+  if (tenantId) params.set('tenantId', tenantId);
+
+  return `https://teams.microsoft.com/l/entity/${encodeURIComponent(appId)}/${encodeURIComponent(entityId)}?${params.toString()}`;
+}
+
 function buildChatCard({
   siteName,
   visitorName,
@@ -280,7 +299,7 @@ function buildChatCard({
       {
         type: 'Action.OpenUrl',
         title: 'Open in Inbox',
-        url: `https://teams-live-chat-bridge.vercel.app/tab?conversation=${encodeURIComponent(conversationUuid)}`,
+        url: buildInboxDeepLink(conversationUuid),
       },
       ...(pageUrl
         ? [
