@@ -10,8 +10,7 @@
     "@microsoft/teams.api": "^2.0.0",
     "@microsoft/teams.apps": "^2.0.0",
     "@supabase/supabase-js": "^2.57.4",
-    "express": "^5.1.0",
-    "jose": "5.10.0"
+    "express": "^5.1.0"
   },
   "overrides": {
     "jwks-rsa": {
