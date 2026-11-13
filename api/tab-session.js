@@ -1,3 +1,4 @@
+import { realAgentName } from '../lib/agent-registration.js';
 import { createSession, noStore, supabase, verifyTeamsSso } from '../lib/tab-auth.js';
 
 export default async function handler(req, res) {
@@ -24,10 +25,15 @@ export default async function handler(req, res) {
       });
     }
 
-    await supabase.from('agents').update({
+    const verifiedName = realAgentName(identity.name);
+    const { error: updateError } = await supabase.from('agents').update({
+      ...(verifiedName ? { display_name: verifiedName } : {}),
       last_seen_at: new Date().toISOString(),
       status: agent.status === 'offline' ? 'offline' : 'online',
     }).eq('id', agent.id);
+
+    if (updateError) throw updateError;
+    if (verifiedName) agent.display_name = verifiedName;
 
     return res.json({
       ok: true,
@@ -44,3 +50,4 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: error instanceof Error ? error.message : String(error) });
   }
 }
+
