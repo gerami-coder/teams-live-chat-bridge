@@ -1,3 +1,4 @@
+import { realAgentName } from '../lib/agent-registration.js';
 import { noStore, readSession, supabase } from '../lib/tab-auth.js';
 
 export default async function handler(req, res) {
@@ -37,7 +38,7 @@ export default async function handler(req, res) {
         ok: true,
         agent: publicAgent(agent),
         sites: sites || [],
-        agents: agents || [],
+        agents: (agents || []).filter((row) => realAgentName(row.display_name)),
         conversation,
         messages: messages || [],
       });
@@ -76,7 +77,7 @@ export default async function handler(req, res) {
       ok: true,
       agent: publicAgent(agent),
       sites: sites || [],
-      agents: agents || [],
+      agents: (agents || []).filter((row) => realAgentName(row.display_name)),
       conversations: conversations || [],
       latest_messages: latestMessages,
     });
@@ -94,3 +95,4 @@ function publicAgent(agent) {
     status: agent.status,
   };
 }
+

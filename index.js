@@ -1,3 +1,4 @@
+import { registerAgent, realAgentName } from './lib/agent-registration.js';
 import express from 'express';
 import crypto from 'node:crypto';
 import { App, ExpressAdapter } from '@microsoft/teams.apps';
@@ -93,80 +94,7 @@ async function resolveSite(pageUrl, siteKey) {
 }
 
 async function upsertAgent(activity) {
-  const aadObjectId = activity.from?.aadObjectId || null;
-  const conversationId = activity.conversation?.id || null;
-  const displayName = activity.from?.name || 'Support Agent';
-
-  if (!conversationId) return null;
-
-  let existing = null;
-
-  if (aadObjectId) {
-    existing = (
-      await supabase
-        .from('agents')
-        .select('*')
-        .eq('aad_object_id', aadObjectId)
-        .maybeSingle()
-    ).data;
-  }
-
-  if (!existing) {
-    existing = (
-      await supabase
-        .from('agents')
-        .select('*')
-        .eq('teams_conversation_id', conversationId)
-        .maybeSingle()
-    ).data;
-  }
-
-  if (existing) {
-    const incomingIsPersonal = String(conversationId).startsWith('a:');
-    const existingIsPersonal = String(existing.teams_conversation_id || '').startsWith('a:');
-    const safeConversationId =
-      incomingIsPersonal || !existingIsPersonal
-        ? conversationId
-        : existing.teams_conversation_id;
-
-    const { data, error } = await supabase
-      .from('agents')
-      .update({
-        display_name: displayName,
-        aad_object_id: aadObjectId || existing.aad_object_id,
-        teams_conversation_id: safeConversationId,
-        status: existing.status === 'offline' ? 'offline' : 'online',
-        last_seen_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', existing.id)
-      .select('*')
-      .single();
-
-    if (error) throw error;
-    return data;
-  }
-
-  const suffix = (aadObjectId || conversationId)
-    .replace(/[^a-zA-Z0-9]/g, '')
-    .slice(-6)
-    .toLowerCase();
-
-  const { data, error } = await supabase
-    .from('agents')
-    .insert({
-      agent_key: `${slugify(displayName)}-${suffix}`,
-      display_name: displayName,
-      aad_object_id: aadObjectId,
-      teams_conversation_id: conversationId,
-      status: 'online',
-      last_seen_at: new Date().toISOString(),
-    })
-    .select('*')
-    .single();
-
-  if (error) throw error;
-  return data;
+  return registerAgent(supabase, activity, slugify);
 }
 
 async function getMappedAgentIds(siteId, department = 'general') {
@@ -193,26 +121,25 @@ async function chooseAgent(siteId, department = 'general') {
     .select('*')
     .eq('is_active', true)
     .in('status', ['online', 'away'])
-    .order('last_assigned_at', { ascending: true, nullsFirst: true })
-    .limit(1);
+    .order('last_assigned_at', { ascending: true, nullsFirst: true });
 
   if (mappedIds.length) query = query.in('id', mappedIds);
 
   let { data } = await query;
 
-  if (!data?.length) {
+  data = (data || []).filter((agent) => realAgentName(agent.display_name));
+  if (!data.length) {
     let fallback = supabase
       .from('agents')
       .select('*')
       .eq('is_active', true)
-      .order('last_assigned_at', { ascending: true, nullsFirst: true })
-      .limit(1);
+      .order('last_assigned_at', { ascending: true, nullsFirst: true });
 
     if (mappedIds.length) fallback = fallback.in('id', mappedIds);
     data = (await fallback).data;
   }
 
-  const agent = data?.[0] || null;
+  const agent = (data || []).find((row) => realAgentName(row.display_name)) || null;
 
   if (agent) {
     await supabase
@@ -320,7 +247,7 @@ app.on('install.add', async ({ activity, send }) => {
     await send(
       agent
         ? `Website Live Chat is connected for ${agent.display_name}. Use /online, /away or /offline to change your availability.`
-        : 'Website Live Chat is connected.',
+        : 'Website Live Chat is connected. Open this bot in your personal chat and send hello to complete agent registration.',
     );
   } catch (error) {
     console.error('[install.add]', error);
@@ -334,7 +261,7 @@ app.on('message', async ({ activity, send }) => {
     const agent = await upsertAgent(activity);
 
     if (!agent) {
-      await send('I could not register this Teams user.');
+      await send('Please open a personal chat with Website Live Chat and send hello. Registration needs your Microsoft user identity and display name.');
       return;
     }
 
@@ -398,7 +325,7 @@ app.on('message', async ({ activity, send }) => {
       body: JSON.stringify({
         conversation_uuid: conversation.conversation_uuid,
         message: text,
-        sender_name: activity.from?.name || 'Support',
+        sender_name: agent.display_name,
         external_id: activity.id,
       }),
     });
@@ -410,7 +337,7 @@ app.on('message', async ({ activity, send }) => {
     await supabase.from('messages').insert({
       conversation_id: conversation.id,
       sender_type: 'agent',
-      sender_name: activity.from?.name || 'Support',
+      sender_name: agent.display_name,
       body: text,
       external_id: activity.id,
     });
@@ -577,7 +504,7 @@ server.get('/wp/bootstrap', async (req, res) => {
     if (sitesError) throw sitesError;
     if (mappingsError) throw mappingsError;
 
-    const activeAgents = agents || [];
+    const activeAgents = (agents || []).filter((agent) => realAgentName(agent.display_name));
     const onlineCount = activeAgents.filter((a) => a.status === 'online').length;
     const availableCount = activeAgents.filter((a) => a.status === 'online' || a.status === 'away').length;
 
@@ -796,3 +723,4 @@ server.post('/wp/message', async (req, res) => {
 await app.initialize();
 
 export default server;
+
