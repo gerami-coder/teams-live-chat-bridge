@@ -1,5 +1,5 @@
 import { realAgentName } from '../lib/agent-registration.js';
-import { createSession, noStore, supabase, verifyTeamsSso } from '../lib/tab-auth.js';
+import { createSession, noStore, supabase, verifyTeamsSso, withInboxRole } from '../lib/tab-auth.js';
 
 export default async function handler(req, res) {
   noStore(res);
@@ -35,10 +35,12 @@ export default async function handler(req, res) {
     if (updateError) throw updateError;
     if (verifiedName) agent.display_name = verifiedName;
 
+    const authorizedAgent = await withInboxRole(agent);
     return res.json({
       ok: true,
       session: createSession(agent),
       agent: {
+        is_admin: authorizedAgent.is_admin,
         id: agent.id,
         agent_key: agent.agent_key,
         display_name: agent.display_name,
