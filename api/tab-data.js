@@ -6,7 +6,7 @@ export default async function handler(req, res) {
   try {
     const agent = await readSession(req);
     const uuid = String(req.query.conversation || '');
-    const publicAgent = { id: agent.id, display_name: agent.display_name, status: agent.status, is_admin: agent.is_admin === true };
+    const publicAgent = { id: agent.id, display_name: agent.display_name, status: agent.status, is_admin: agent.is_admin === true, is_manager: agent.is_manager === true };
     if (uuid) {
       const { data: conversation, error } = await assignedConversations(supabase, agent).eq('conversation_uuid', uuid).maybeSingle();
       if (error) throw error;

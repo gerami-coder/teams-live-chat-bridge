@@ -115,6 +115,11 @@ async function getMappedAgentIds(siteId, department = 'general') {
 
 async function chooseAgent(siteId, department = 'general') {
   const mappedIds = await getMappedAgentIds(siteId, department);
+  if (!mappedIds.length) {
+    const { data: routingSite, error } = await supabase.from('sites').select('enforce_agent_assignments').eq('id', siteId).maybeSingle();
+    if (error) throw error;
+    if (routingSite?.enforce_agent_assignments) return null;
+  }
 
   let query = supabase
     .from('agents')
