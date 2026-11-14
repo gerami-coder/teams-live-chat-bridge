@@ -41,6 +41,7 @@ export default async function handler(req, res) {
       session: createSession(agent),
       agent: {
         is_admin: authorizedAgent.is_admin,
+        is_manager: authorizedAgent.is_manager,
         id: agent.id,
         agent_key: agent.agent_key,
         display_name: agent.display_name,
