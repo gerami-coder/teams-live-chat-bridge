@@ -1,3 +1,4 @@
+import { assignedConversations, transferAgents } from '../lib/inbox-access.js';
 import crypto from 'node:crypto';
 import { noStore, readSession, supabase } from '../lib/tab-auth.js';
 
@@ -33,9 +34,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'missing_conversation_uuid' });
     }
 
-    const { data: conversation, error } = await supabase
-      .from('conversations')
-      .select('*')
+    const { data: conversation, error } = await assignedConversations(supabase, currentAgent.id)
       .eq('conversation_uuid', conversationUuid)
       .maybeSingle();
 
@@ -88,7 +87,8 @@ export default async function handler(req, res) {
           last_message_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
-        .eq('id', conversation.id);
+        .eq('id', conversation.id)
+        .eq('assigned_agent_id', currentAgent.id);
 
       return res.json({ ok: true });
     }
@@ -96,6 +96,8 @@ export default async function handler(req, res) {
     if (action === 'assign') {
       const agentId = String(req.body.agent_id || '');
       if (!agentId) return res.status(400).json({ error: 'missing_agent_id' });
+      const candidates = await transferAgents(supabase, conversation.site_id, currentAgent);
+      if (!candidates.some(a => a.id === agentId)) return res.status(403).json({ error: 'agent_not_assigned_to_website' });
 
       const { error: updateError } = await supabase
         .from('conversations')
@@ -104,7 +106,8 @@ export default async function handler(req, res) {
           status: 'open',
           updated_at: new Date().toISOString(),
         })
-        .eq('id', conversation.id);
+        .eq('id', conversation.id)
+        .eq('assigned_agent_id', currentAgent.id);
 
       if (updateError) throw updateError;
       return res.json({ ok: true });
@@ -122,7 +125,8 @@ export default async function handler(req, res) {
           status,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', conversation.id);
+        .eq('id', conversation.id)
+        .eq('assigned_agent_id', currentAgent.id);
 
       if (updateError) throw updateError;
       return res.json({ ok: true });
@@ -134,3 +138,4 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 }
+
