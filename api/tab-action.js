@@ -34,7 +34,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'missing_conversation_uuid' });
     }
 
-    const { data: conversation, error } = await assignedConversations(supabase, currentAgent.id)
+    const { data: conversation, error } = await assignedConversations(supabase, currentAgent)
       .eq('conversation_uuid', conversationUuid)
       .maybeSingle();
 
@@ -82,13 +82,13 @@ export default async function handler(req, res) {
       await supabase
         .from('conversations')
         .update({
-          assigned_agent_id: currentAgent.id,
+          assigned_agent_id: conversation.assigned_agent_id || currentAgent.id,
           status: 'pending',
           last_message_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
         .eq('id', conversation.id)
-        .eq('assigned_agent_id', currentAgent.id);
+        .filter('assigned_agent_id', conversation.assigned_agent_id ? 'eq' : 'is', conversation.assigned_agent_id);
 
       return res.json({ ok: true });
     }
@@ -107,7 +107,7 @@ export default async function handler(req, res) {
           updated_at: new Date().toISOString(),
         })
         .eq('id', conversation.id)
-        .eq('assigned_agent_id', currentAgent.id);
+        .filter('assigned_agent_id', conversation.assigned_agent_id ? 'eq' : 'is', conversation.assigned_agent_id);
 
       if (updateError) throw updateError;
       return res.json({ ok: true });
@@ -126,7 +126,7 @@ export default async function handler(req, res) {
           updated_at: new Date().toISOString(),
         })
         .eq('id', conversation.id)
-        .eq('assigned_agent_id', currentAgent.id);
+        .filter('assigned_agent_id', conversation.assigned_agent_id ? 'eq' : 'is', conversation.assigned_agent_id);
 
       if (updateError) throw updateError;
       return res.json({ ok: true });

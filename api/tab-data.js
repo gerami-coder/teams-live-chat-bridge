@@ -6,9 +6,9 @@ export default async function handler(req, res) {
   try {
     const agent = await readSession(req);
     const uuid = String(req.query.conversation || '');
-    const publicAgent = { id: agent.id, display_name: agent.display_name, status: agent.status };
+    const publicAgent = { id: agent.id, display_name: agent.display_name, status: agent.status, is_admin: agent.is_admin === true };
     if (uuid) {
-      const { data: conversation, error } = await assignedConversations(supabase, agent.id).eq('conversation_uuid', uuid).maybeSingle();
+      const { data: conversation, error } = await assignedConversations(supabase, agent).eq('conversation_uuid', uuid).maybeSingle();
       if (error) throw error;
       if (!conversation) return res.status(404).json({ error: 'conversation_not_found' });
       const [messages, site, agents] = await Promise.all([
@@ -20,7 +20,7 @@ export default async function handler(req, res) {
       if (site.error) throw site.error;
       return res.json({ ok: true, agent: publicAgent, conversation, site: site.data, agents, messages: messages.data || [] });
     }
-    const { data, error } = await assignedConversations(supabase, agent.id).order('last_message_at', { ascending: false }).limit(150);
+    const { data, error } = await assignedConversations(supabase, agent).order('last_message_at', { ascending: false }).limit(150);
     if (error) throw error;
     const conversations = data || [];
     const ids = conversations.map(c => c.id);
